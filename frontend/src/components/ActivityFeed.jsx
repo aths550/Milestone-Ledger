@@ -1,6 +1,7 @@
 import React from 'react';
 
 const EVENT_COPY = {
+  added: () => `New milestone added to contract`,
   funded: (t) => `Milestone ${Number(t?.[1]) + 1 || ''} funded`,
   submitted: (t) => `Milestone ${Number(t?.[1]) + 1 || ''} submitted for review`,
   approved: (t) => `Milestone ${Number(t?.[1]) + 1 || ''} approved`,

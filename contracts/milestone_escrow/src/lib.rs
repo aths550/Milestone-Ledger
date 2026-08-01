@@ -61,6 +61,7 @@ const EVT_FUNDED: Symbol = symbol_short!("funded");
 const EVT_SUBMITTED: Symbol = symbol_short!("submitted");
 const EVT_APPROVED: Symbol = symbol_short!("approved");
 const EVT_PAID: Symbol = symbol_short!("paid");
+const EVT_ADDED: Symbol = symbol_short!("added");
 
 #[contract]
 pub struct MilestoneEscrow;
@@ -220,6 +221,32 @@ impl MilestoneEscrow {
         );
 
         Ok(())
+    }
+
+    /// Client adds a new milestone to the escrow post-initialization.
+    pub fn add_milestone(env: Env, description: Symbol, amount: i128) -> Result<u32, Error> {
+        let client: Address = Self::get_client(&env)?;
+        client.require_auth();
+
+        if amount <= 0 {
+            return Err(Error::InvalidRating);
+        }
+
+        let mut milestones = Self::get_milestones_internal(&env)?;
+        milestones.push_back(Milestone {
+            description,
+            amount,
+            status: MilestoneStatus::Created,
+        });
+        let new_index = milestones.len() - 1;
+
+        env.storage()
+            .instance()
+            .set(&DataKey::Milestones, &milestones);
+
+        env.events().publish((EVT_ADDED, new_index), amount);
+
+        Ok(new_index)
     }
 
     pub fn get_milestone(env: Env, index: u32) -> Result<Milestone, Error> {

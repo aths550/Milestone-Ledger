@@ -127,3 +127,20 @@ fn test_invalid_index_rejected() {
     let result = escrow.try_fund_milestone(&99);
     assert!(result.is_err());
 }
+
+#[test]
+fn test_add_milestone_post_initialization() {
+    let (env, escrow, _rep, _client, _freelancer, _token_addr) = setup();
+    let initial_count = escrow.get_milestones().len();
+    assert_eq!(initial_count, 2);
+
+    let new_idx = escrow.add_milestone(&Symbol::new(&env, "bug_fixes"), &1_500_000i128);
+    assert_eq!(new_idx, 2);
+
+    let m2 = escrow.get_milestone(&2);
+    assert_eq!(m2.description, Symbol::new(&env, "bug_fixes"));
+    assert_eq!(m2.amount, 1_500_000);
+    assert_eq!(m2.status, MilestoneStatus::Created);
+
+    assert_eq!(escrow.get_milestones().len(), 3);
+}
