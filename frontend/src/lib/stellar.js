@@ -19,8 +19,8 @@ import freighterApi from '@stellar/freighter-api';
 export const CONFIG = {
   rpcUrl: import.meta.env.VITE_SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org',
   networkPassphrase: import.meta.env.VITE_NETWORK_PASSPHRASE || Networks.TESTNET,
-  escrowContractId: import.meta.env.VITE_ESCROW_CONTRACT_ID || '',
-  reputationContractId: import.meta.env.VITE_REPUTATION_CONTRACT_ID || '',
+  escrowContractId: import.meta.env.VITE_ESCROW_CONTRACT_ID || 'CD6F3M2MGWBE7IEQNAUZVAVCYZHJO2N4OTTISTUDWUCZK3DIZIGA445N',
+  reputationContractId: import.meta.env.VITE_REPUTATION_CONTRACT_ID || 'CBMEKNGXFKG5EKE6DOQJDQ3E2V5RYS3LTTZU7WLRNLHARARCWAPZP4BB',
 };
 
 export const isConfigured = () =>
