@@ -129,17 +129,30 @@ npm run build   # production build
 
 ---
 
+## Live Deployed Testnet Instance
+
+- **MilestoneEscrow Contract ID:** `CAMHRW6PXNQSC5FQLH2MLAKXW45EIHKYZZ35Z32HI3JTCGIIY7B3BL5R`
+- **ReputationRegistry Contract ID:** `CC3K3HLZ5LA45UU7J4HFAPE6XPYP2BCH4NUB5YW54WFYC6RZMQAEIZQ3`
+- **Demo Client Address:** `GD4FAPMD2226ZEUSYT2ZDOVIVYVRODILOCPJHPTE2Z6EQJ3JXHTV7JPP`
+- **Demo Freelancer Address:** `GAKQ5QEIWIHP6ACNZAM2EQ6WMHFPDAIQ5WCSVZKN3MTCLUF7RF6IOG5R`
+- **Native XLM Token Contract ID (SAC):** `CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC`
+
+---
+
 ## Deploying to Stellar Testnet
 
-1. Install the Soroban CLI:
-   ```bash
-   cargo install --locked soroban-cli
-   ```
+1. Install the Soroban / Stellar CLI (`stellar-cli` or `soroban-cli`).
 2. From the repo root:
    ```bash
-   ./scripts/deploy.sh
+   cargo build --target wasm32-unknown-unknown --release --manifest-path contracts/Cargo.toml
+   stellar contract optimize --wasm contracts/target/wasm32-unknown-unknown/release/reputation_registry.wasm
+   stellar contract optimize --wasm contracts/target/wasm32-unknown-unknown/release/milestone_escrow.wasm
    ```
-   This creates/funds a `deployer` identity via Friendbot, builds both contracts to WASM, deploys them, initializes `ReputationRegistry`, and authorizes the escrow contract to write to it. It prints both **contract IDs**.
+3. Deploy both contracts to Testnet:
+   ```bash
+   REPUTATION_ID=$(stellar contract deploy --wasm contracts/target/wasm32-unknown-unknown/release/reputation_registry.optimized.wasm --source-account deployer --rpc-url https://soroban-testnet.stellar.org --network-passphrase "Test SDF Network ; September 2015")
+   ESCROW_ID=$(stellar contract deploy --wasm contracts/target/wasm32-unknown-unknown/release/milestone_escrow.optimized.wasm --source-account deployer --rpc-url https://soroban-testnet.stellar.org --network-passphrase "Test SDF Network ; September 2015")
+   ```
 3. Initialize a sample project:
    ```bash
    soroban keys generate freelancer --network testnet

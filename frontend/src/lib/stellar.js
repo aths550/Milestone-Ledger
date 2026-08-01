@@ -64,6 +64,9 @@ export async function connectWallet() {
   }
 }
 
+export const STORED_CLIENT_ADDRESS = 'GD4FAPMD2226ZEUSYT2ZDOVIVYVRODILOCPJHPTE2Z6EQJ3JXHTV7JPP';
+export const STORED_FREELANCER_ADDRESS = 'GAKQ5QEIWIHP6ACNZAM2EQ6WMHFPDAIQ5WCSVZKN3MTCLUF7RF6IOG5R';
+
 export function parseSorobanError(error) {
   if (!error) return 'Unknown error occurred.';
   
@@ -94,6 +97,27 @@ export function parseSorobanError(error) {
   }
 
   return errStr;
+}
+
+export function extractDiagnosticError(simulated) {
+  if (!simulated) return null;
+  let diagnosticLog = '';
+
+  if (Array.isArray(simulated.events)) {
+    diagnosticLog = simulated.events
+      .map((e) => {
+        try {
+          return `${e.topic?.map((t) => scValToNative(t)).join(': ')} => ${e.value ? JSON.stringify(scValToNative(e.value)) : ''}`;
+        } catch {
+          return JSON.stringify(e);
+        }
+      })
+      .join(' | ');
+  }
+
+  const rawError = simulated.error || simulated.result?.error || diagnosticLog || JSON.stringify(simulated);
+  console.log('[Soroban Diagnostic Events & Logs]:', { simulated, diagnosticLog, rawError });
+  return parseSorobanError(rawError);
 }
 
 // --- Generic contract invocation ------------------------------------------
@@ -129,7 +153,7 @@ async function invokeContract({
 
     const simulated = await server.simulateTransaction(tx);
     if (rpc.Api.isSimulationError(simulated)) {
-      const parsedErr = parseSorobanError(simulated.error || simulated);
+      const parsedErr = extractDiagnosticError(simulated);
       throw new Error(`Simulation failed for ${method}: ${parsedErr}`);
     }
 
@@ -231,6 +255,14 @@ export async function fetchMilestones() {
 }
 
 export async function fundMilestone(sourcePublicKey, index) {
+  console.log('[Audit Check] Invoking fund_milestone', {
+    connectedWalletAddress: sourcePublicKey,
+    expectedClientAddress: STORED_CLIENT_ADDRESS,
+    milestoneIndex: index,
+  });
+  if (sourcePublicKey && sourcePublicKey !== STORED_CLIENT_ADDRESS) {
+    console.warn(`[Address Warning] Connected wallet (${sourcePublicKey}) is not the contract Client address (${STORED_CLIENT_ADDRESS}). Transaction require_auth will fail.`);
+  }
   return invokeContract({
     contractId: CONFIG.escrowContractId,
     method: 'fund_milestone',
@@ -240,6 +272,14 @@ export async function fundMilestone(sourcePublicKey, index) {
 }
 
 export async function submitMilestone(sourcePublicKey, index) {
+  console.log('[Audit Check] Invoking submit_milestone', {
+    connectedWalletAddress: sourcePublicKey,
+    expectedFreelancerAddress: STORED_FREELANCER_ADDRESS,
+    milestoneIndex: index,
+  });
+  if (sourcePublicKey && sourcePublicKey !== STORED_FREELANCER_ADDRESS) {
+    console.warn(`[Address Warning] Connected wallet (${sourcePublicKey}) is not the contract Freelancer address (${STORED_FREELANCER_ADDRESS}). Transaction require_auth will fail.`);
+  }
   return invokeContract({
     contractId: CONFIG.escrowContractId,
     method: 'submit_milestone',
@@ -249,6 +289,15 @@ export async function submitMilestone(sourcePublicKey, index) {
 }
 
 export async function approveMilestone(sourcePublicKey, index, rating) {
+  console.log('[Audit Check] Invoking approve_milestone', {
+    connectedWalletAddress: sourcePublicKey,
+    expectedClientAddress: STORED_CLIENT_ADDRESS,
+    milestoneIndex: index,
+    rating,
+  });
+  if (sourcePublicKey && sourcePublicKey !== STORED_CLIENT_ADDRESS) {
+    console.warn(`[Address Warning] Connected wallet (${sourcePublicKey}) is not the contract Client address (${STORED_CLIENT_ADDRESS}). Transaction require_auth will fail.`);
+  }
   return invokeContract({
     contractId: CONFIG.escrowContractId,
     method: 'approve_milestone',
