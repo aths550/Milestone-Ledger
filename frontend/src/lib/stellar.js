@@ -327,36 +327,50 @@ export async function pollEvents({ startLedger, contractIds }) {
   try {
     const server = getServer();
     const response = await server.getEvents({
-      startLedger,
+      startLedger: Number(startLedger),
       filters: [
         {
           type: 'contract',
-          contractIds,
+          contractIds: contractIds.map((id) => String(id)),
         },
       ],
       limit: 50,
     });
 
-    return (response.events || []).map((evt) => ({
-      id: evt.id,
-      ledger: evt.ledger,
-      contractId: evt.contractId,
-      topic: evt.topic?.map((t) => {
-        try {
-          return scValToNative(t);
-        } catch {
-          return null;
-        }
-      }),
-      value: (() => {
-        try {
-          return scValToNative(evt.value);
-        } catch {
-          return null;
-        }
-      })(),
-      txHash: evt.txHash,
-    }));
+    const eventsList = response.events || [];
+    console.log(`[Soroban getEvents] startLedger: ${startLedger} | Raw event count: ${eventsList.length}`);
+
+    return eventsList.map((evt) => {
+      let cId = '';
+      if (typeof evt.contractId === 'string') {
+        cId = evt.contractId;
+      } else if (evt.contractId?.contractId) {
+        cId = typeof evt.contractId.contractId === 'function' ? evt.contractId.contractId() : String(evt.contractId.contractId);
+      } else {
+        cId = String(evt.contractId || '');
+      }
+
+      return {
+        id: String(evt.id),
+        ledger: Number(evt.ledger),
+        contractId: cId,
+        topic: evt.topic?.map((t) => {
+          try {
+            return scValToNative(t);
+          } catch {
+            return null;
+          }
+        }),
+        value: (() => {
+          try {
+            return scValToNative(evt.value);
+          } catch {
+            return null;
+          }
+        })(),
+        txHash: String(evt.txHash || ''),
+      };
+    });
   } catch (err) {
     console.error('[Soroban Poll Events Error]', err);
     throw err;

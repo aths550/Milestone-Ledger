@@ -6,6 +6,7 @@ const EVENT_COPY = {
   approved: (t) => `Milestone ${Number(t?.[1]) + 1 || ''} approved`,
   paid: (t) => `Payment released for milestone ${Number(t?.[1]) + 1 || ''}`,
   rep_upd: () => `Reputation updated on-chain`,
+  caller_ok: () => `Escrow contract authorized in reputation registry`,
 };
 
 export default function ActivityFeed({ events, live }) {
