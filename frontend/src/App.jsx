@@ -99,18 +99,33 @@ export default function App() {
       try {
         if (startLedgerRef.current === null) {
           const latest = await getLatestLedger();
-          startLedgerRef.current = Math.max(1, latest - 100);
+          // Look back 10,000 ledgers (~14 hours) on Testnet so historical milestone events render on fresh page load
+          startLedgerRef.current = Math.max(1, latest - 10000);
         }
         const newEvents = await pollEvents({
           startLedger: startLedgerRef.current,
           contractIds: [CONFIG.escrowContractId, CONFIG.reputationContractId].filter(Boolean),
         });
         if (!cancelled && newEvents.length) {
-          setEvents((prev) => [...newEvents, ...prev].slice(0, 30));
-          startLedgerRef.current = Math.max(...newEvents.map((e) => e.ledger)) + 1;
+          setEvents((prev) => {
+            const existingIds = new Set(prev.map((e) => e.id));
+            const fresh = newEvents.filter((e) => !existingIds.has(e.id));
+            return [...fresh, ...prev].slice(0, 50);
+          });
+          const maxLedger = Math.max(...newEvents.map((e) => e.ledger));
+          startLedgerRef.current = maxLedger + 1;
         }
         if (!cancelled) setLive(true);
-      } catch {
+      } catch (err) {
+        console.error('[Event Loop Tick Error]', err);
+        if (startLedgerRef.current !== null) {
+          try {
+            const latest = await getLatestLedger();
+            startLedgerRef.current = Math.max(1, latest - 1000);
+          } catch (e) {
+            console.error('[Reset Latest Ledger Error]', e);
+          }
+        }
         if (!cancelled) setLive(false);
       } finally {
         if (!cancelled) timer = setTimeout(tick, EVENT_POLL_INTERVAL_MS);

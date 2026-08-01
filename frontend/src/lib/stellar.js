@@ -324,38 +324,43 @@ export async function fetchReputation(freelancerAddress) {
  * websockets, so short-interval polling is the standard "real-time" pattern.
  */
 export async function pollEvents({ startLedger, contractIds }) {
-  const server = getServer();
-  const response = await server.getEvents({
-    startLedger,
-    filters: [
-      {
-        type: 'contract',
-        contractIds,
-      },
-    ],
-    limit: 50,
-  });
+  try {
+    const server = getServer();
+    const response = await server.getEvents({
+      startLedger,
+      filters: [
+        {
+          type: 'contract',
+          contractIds,
+        },
+      ],
+      limit: 50,
+    });
 
-  return (response.events || []).map((evt) => ({
-    id: evt.id,
-    ledger: evt.ledger,
-    contractId: evt.contractId,
-    topic: evt.topic?.map((t) => {
-      try {
-        return scValToNative(t);
-      } catch {
-        return null;
-      }
-    }),
-    value: (() => {
-      try {
-        return scValToNative(evt.value);
-      } catch {
-        return null;
-      }
-    })(),
-    txHash: evt.txHash,
-  }));
+    return (response.events || []).map((evt) => ({
+      id: evt.id,
+      ledger: evt.ledger,
+      contractId: evt.contractId,
+      topic: evt.topic?.map((t) => {
+        try {
+          return scValToNative(t);
+        } catch {
+          return null;
+        }
+      }),
+      value: (() => {
+        try {
+          return scValToNative(evt.value);
+        } catch {
+          return null;
+        }
+      })(),
+      txHash: evt.txHash,
+    }));
+  } catch (err) {
+    console.error('[Soroban Poll Events Error]', err);
+    throw err;
+  }
 }
 
 export async function getLatestLedger() {
