@@ -1,0 +1,18 @@
+[package]
+name = "milestone_escrow"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+soroban-sdk = "21.7.0"
+
+[dev-dependencies]
+soroban-sdk = { version = "21.7.0", features = ["testutils"] }
+reputation_registry = { path = "../reputation_registry", features = ["testutils"] }
+
+[features]
+testutils = ["soroban-sdk/testutils"]
