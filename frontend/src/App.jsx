@@ -187,6 +187,8 @@ export default function App() {
   };
 
   const handleFund = async (index) => {
+    setMilestonesError(null);
+    setTxSuccess(null);
     try {
       const activeAddress = await ensureAddress();
       if (!activeAddress) return;
@@ -198,6 +200,8 @@ export default function App() {
   };
 
   const handleSubmit = async (index) => {
+    setMilestonesError(null);
+    setTxSuccess(null);
     try {
       const activeAddress = await ensureAddress();
       if (!activeAddress) return;
@@ -209,6 +213,8 @@ export default function App() {
   };
 
   const handleApprove = async (index, rating) => {
+    setMilestonesError(null);
+    setTxSuccess(null);
     try {
       const activeAddress = await ensureAddress();
       if (!activeAddress) return;
