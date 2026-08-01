@@ -19,7 +19,10 @@ export function formatAmount(stroops) {
 
 export default function MilestoneCard({ index, milestone, role, busy, onFund, onSubmit, onApprove }) {
   const [rating, setRating] = useState(5);
-  const status = milestone.status;
+  let status = milestone.status;
+  if (Array.isArray(status)) status = status[0];
+  if (typeof status === 'object' && status !== null) status = status.name || Object.keys(status)[0];
+  status = String(status || 'Created');
   const sealed = status === 'Approved';
 
   return (
@@ -37,15 +40,37 @@ export default function MilestoneCard({ index, milestone, role, busy, onFund, on
 
         <div className="milestone-actions">
           {role === 'client' && status === 'Created' && (
-            <button className="btn btn-outline" onClick={() => onFund(index)} disabled={busy}>
+            <button
+              type="button"
+              className="btn btn-outline"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onFund(index); }}
+              disabled={busy}
+            >
               {busy ? 'Funding…' : 'Fund milestone'}
             </button>
           )}
 
+          {role === 'client' && status === 'Funded' && (
+            <p className="hint-text">Work in progress — switch to <strong>Freelancer</strong> view to submit work.</p>
+          )}
+
+          {role === 'freelancer' && status === 'Created' && (
+            <p className="hint-text">Awaiting client funding — switch to <strong>Client</strong> view to fund.</p>
+          )}
+
           {role === 'freelancer' && status === 'Funded' && (
-            <button className="btn btn-outline" onClick={() => onSubmit(index)} disabled={busy}>
+            <button
+              type="button"
+              className="btn btn-outline"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onSubmit(index); }}
+              disabled={busy}
+            >
               {busy ? 'Submitting…' : 'Submit work'}
             </button>
+          )}
+
+          {role === 'freelancer' && status === 'Submitted' && (
+            <p className="hint-text">Submitted for review — switch to <strong>Client</strong> view to approve & pay.</p>
           )}
 
           {role === 'client' && status === 'Submitted' && (
@@ -62,13 +87,18 @@ export default function MilestoneCard({ index, milestone, role, busy, onFund, on
                   ))}
                 </select>
               </label>
-              <button className="btn btn-primary" onClick={() => onApprove(index, rating)} disabled={busy}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onApprove(index, rating); }}
+                disabled={busy}
+              >
                 {busy ? 'Approving…' : 'Approve & pay'}
               </button>
             </div>
           )}
 
-          {status === 'Approved' && <p className="milestone-done">Payment released and reputation recorded.</p>}
+          {status === 'Approved' && <p className="milestone-done">Payment released and reputation recorded on-chain.</p>}
         </div>
       </div>
     </li>

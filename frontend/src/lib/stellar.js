@@ -45,15 +45,55 @@ export async function isFreighterInstalled() {
 }
 
 export async function connectWallet() {
-  const { isAllowed } = await freighterApi.isAllowed();
-  if (!isAllowed) {
-    await freighterApi.setAllowed();
+  try {
+    const installed = await isFreighterInstalled();
+    if (!installed) {
+      throw new Error('Freighter wallet extension not detected. Please install Freighter (freighter.app) and refresh.');
+    }
+    const { isAllowed } = await freighterApi.isAllowed();
+    if (!isAllowed) {
+      await freighterApi.setAllowed();
+    }
+    const { address } = await freighterApi.getAddress();
+    if (!address) {
+      throw new Error('No address returned by Freighter. Is your wallet unlocked and selected?');
+    }
+    return address;
+  } catch (err) {
+    throw new Error(err.message || 'Freighter connection failed.');
   }
-  const { address } = await freighterApi.getAddress();
-  if (!address) {
-    throw new Error('No address returned by Freighter. Is a wallet unlocked and selected?');
+}
+
+export function parseSorobanError(error) {
+  if (!error) return 'Unknown error occurred.';
+  
+  const errStr = typeof error === 'string' 
+    ? error 
+    : (error.message || error.error || JSON.stringify(error));
+
+  if (errStr.includes('Error(Contract, #1)') || errStr.includes('AlreadyInitialized')) {
+    return 'Contract is already initialized (Error #1).';
   }
-  return address;
+  if (errStr.includes('Error(Contract, #2)') || errStr.includes('NotInitialized')) {
+    return 'Contract is not initialized yet (Error #2).';
+  }
+  if (errStr.includes('Error(Contract, #3)') || errStr.includes('InvalidIndex')) {
+    return 'Invalid milestone index (Error #3).';
+  }
+  if (errStr.includes('Error(Contract, #4)') || errStr.includes('WrongStatus')) {
+    return 'Milestone is in the wrong status for this operation (Error #4 - WrongStatus).';
+  }
+  if (errStr.includes('Error(Contract, #5)') || errStr.includes('InvalidRating')) {
+    return 'Rating must be between 1 and 5 (Error #5).';
+  }
+  if (errStr.includes('NotAuthorized') || errStr.includes('require_auth')) {
+    return 'Authorization failed: wallet address is not authorized for this action.';
+  }
+  if (errStr.includes('User declined') || errStr.includes('cancelled') || errStr.includes('Popup closed')) {
+    return 'Transaction signing was cancelled in Freighter.';
+  }
+
+  return errStr;
 }
 
 // --- Generic contract invocation ------------------------------------------
@@ -68,56 +108,105 @@ async function invokeContract({
   sourcePublicKey,
   simulateOnly = false,
 }) {
-  const server = getServer();
-  const contract = new Contract(contractId);
+  try {
+    const server = getServer();
+    const contract = new Contract(contractId);
 
-  // Read-only simulated calls (get_milestones, get_reputation, ...) don't
-  // need a real, funded source account -- a synthetic one is sufficient for
-  // building a well-formed transaction to simulate against the RPC.
-  const account = sourcePublicKey
-    ? await server.getAccount(sourcePublicKey)
-    : new Account(Keypair.random().publicKey(), '0');
+    // Read-only simulated calls (get_milestones, get_reputation, ...) don't
+    // need a real, funded source account -- a synthetic one is sufficient for
+    // building a well-formed transaction to simulate against the RPC.
+    const account = sourcePublicKey
+      ? await server.getAccount(sourcePublicKey)
+      : new Account('GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF', '0');
 
-  const tx = new TransactionBuilder(account, {
-    fee: BASE_FEE,
-    networkPassphrase: CONFIG.networkPassphrase,
-  })
-    .addOperation(contract.call(method, ...args))
-    .setTimeout(60)
-    .build();
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: CONFIG.networkPassphrase,
+    })
+      .addOperation(contract.call(method, ...args))
+      .setTimeout(60)
+      .build();
 
-  const simulated = await server.simulateTransaction(tx);
-  if (rpc.Api.isSimulationError(simulated)) {
-    throw new Error(`Simulation failed for ${method}: ${simulated.error}`);
+    const simulated = await server.simulateTransaction(tx);
+    if (rpc.Api.isSimulationError(simulated)) {
+      const parsedErr = parseSorobanError(simulated.error || simulated);
+      throw new Error(`Simulation failed for ${method}: ${parsedErr}`);
+    }
+
+    if (simulateOnly) {
+      return simulated.result?.retval ? scValToNative(simulated.result.retval) : null;
+    }
+
+    let prepared;
+    try {
+      prepared = await server.prepareTransaction(tx);
+    } catch (err) {
+      throw new Error(`Transaction preparation failed: ${parseSorobanError(err)}`);
+    }
+
+    let signedResult;
+    try {
+      signedResult = await freighterApi.signTransaction(prepared.toXDR(), {
+        networkPassphrase: CONFIG.networkPassphrase,
+      });
+    } catch (err) {
+      throw new Error(`Freighter signing cancelled or failed: ${parseSorobanError(err)}`);
+    }
+
+    if (!signedResult) {
+      throw new Error('Signing was cancelled in Freighter wallet.');
+    }
+
+    if (typeof signedResult === 'object' && signedResult.error) {
+      throw new Error(`Freighter error: ${parseSorobanError(signedResult.error)}`);
+    }
+
+    const signedXdr = typeof signedResult === 'string'
+      ? signedResult
+      : (signedResult.signedTxXdr || signedResult.signedXdr || null);
+
+    if (!signedXdr || typeof signedXdr !== 'string') {
+      throw new Error('Transaction signing was not completed.');
+    }
+
+    let signedTx;
+    try {
+      signedTx = TransactionBuilder.fromXDR(signedXdr, CONFIG.networkPassphrase);
+    } catch (err) {
+      throw new Error(`Invalid signed transaction envelope: ${err.message}`);
+    }
+
+    const sendResult = await server.sendTransaction(signedTx);
+
+    if (sendResult.status === 'ERROR') {
+      const errDetail = parseSorobanError(sendResult.errorResult || sendResult);
+      throw new Error(`Transaction submission error: ${errDetail}`);
+    }
+
+    // Poll for final status (SUCCESS vs FAILED vs timeout)
+    let attempts = 0;
+    const maxAttempts = 20;
+    let getResult = await server.getTransaction(sendResult.hash);
+    while ((!getResult || getResult.status === 'NOT_FOUND') && attempts < maxAttempts) {
+      await new Promise((r) => setTimeout(r, 1200));
+      getResult = await server.getTransaction(sendResult.hash);
+      attempts += 1;
+    }
+
+    if (!getResult || getResult.status === 'NOT_FOUND') {
+      throw new Error(`Transaction submitted but confirmation timed out (Tx Hash: ${sendResult.hash})`);
+    }
+
+    if (getResult.status === 'FAILED') {
+      const failDetail = parseSorobanError(getResult.resultXdr || getResult.status);
+      throw new Error(`Transaction failed on-chain: ${failDetail}`);
+    }
+
+    return { hash: sendResult.hash, status: getResult.status };
+  } catch (err) {
+    console.error(`[Soroban Error] Method '${method}' failed:`, err);
+    throw err;
   }
-
-  if (simulateOnly) {
-    return simulated.result?.retval ? scValToNative(simulated.result.retval) : null;
-  }
-
-  const prepared = await server.prepareTransaction(tx);
-  const signedResult = await freighterApi.signTransaction(prepared.toXDR(), {
-    networkPassphrase: CONFIG.networkPassphrase,
-  });
-  const signedXdr = signedResult.signedTxXdr || signedResult;
-
-  const signedTx = TransactionBuilder.fromXDR(signedXdr, CONFIG.networkPassphrase);
-  const sendResult = await server.sendTransaction(signedTx);
-
-  if (sendResult.status === 'ERROR') {
-    throw new Error(`Transaction failed: ${JSON.stringify(sendResult.errorResult)}`);
-  }
-
-  // Poll for final status so callers get a confirmed tx hash.
-  let getResult = await server.getTransaction(sendResult.hash);
-  let attempts = 0;
-  while (getResult.status === 'NOT_FOUND' && attempts < 10) {
-    await new Promise((r) => setTimeout(r, 1500));
-    getResult = await server.getTransaction(sendResult.hash);
-    attempts += 1;
-  }
-
-  return { hash: sendResult.hash, status: getResult.status };
 }
 
 // --- MilestoneEscrow contract calls ----------------------------------------
@@ -128,7 +217,17 @@ export async function fetchMilestones() {
     args: [],
     simulateOnly: true,
   });
-  return raw || [];
+  if (!Array.isArray(raw)) return [];
+  return raw.map((m) => {
+    let status = m.status;
+    if (Array.isArray(status)) status = status[0];
+    else if (typeof status === 'object' && status !== null) status = status.name || Object.keys(status)[0];
+    return {
+      description: String(m.description || ''),
+      amount: Number(m.amount || 0),
+      status: String(status || 'Created'),
+    };
+  });
 }
 
 export async function fundMilestone(sourcePublicKey, index) {

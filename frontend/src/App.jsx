@@ -14,6 +14,7 @@ import {
   approveMilestone,
   pollEvents,
   getLatestLedger,
+  parseSorobanError,
 } from './lib/stellar.js';
 
 const MOCK_MILESTONES = [
@@ -21,7 +22,7 @@ const MOCK_MILESTONES = [
   { description: 'final_delivery', amount: 2_000_000, status: 'Created' },
 ];
 
-const MOCK_FREELANCER = 'GDEMO0000000000000000000000000000000000000000000FREELANCER';
+const MOCK_FREELANCER = 'GAKQ5QEIWIHP6ACNZAM2EQ6WMHFPDAIQ5WCSVZKN3MTCLUF7RF6IOG5R';
 
 const EVENT_POLL_INTERVAL_MS = 6000;
 
@@ -35,6 +36,7 @@ export default function App() {
   const [milestones, setMilestones] = useState([]);
   const [loadingMilestones, setLoadingMilestones] = useState(true);
   const [milestonesError, setMilestonesError] = useState(null);
+  const [txSuccess, setTxSuccess] = useState(null);
   const [busyIndex, setBusyIndex] = useState(null);
 
   const [reputation, setReputation] = useState(null);
@@ -48,7 +50,6 @@ export default function App() {
 
   const loadMilestones = useCallback(async () => {
     setLoadingMilestones(true);
-    setMilestonesError(null);
     try {
       if (demoMode) {
         await new Promise((r) => setTimeout(r, 400));
@@ -58,7 +59,8 @@ export default function App() {
         setMilestones(raw);
       }
     } catch (err) {
-      setMilestonesError(err.message || 'Failed to load milestones from the contract.');
+      console.error('[Load Milestones Error]', err);
+      setMilestonesError(parseSorobanError(err));
     } finally {
       setLoadingMilestones(false);
     }
@@ -74,7 +76,8 @@ export default function App() {
         const rep = await fetchReputation(MOCK_FREELANCER);
         setReputation(rep);
       }
-    } catch {
+    } catch (err) {
+      console.error('[Load Reputation Error]', err);
       setReputation(null);
     } finally {
       setLoadingReputation(false);
@@ -127,16 +130,30 @@ export default function App() {
     try {
       const addr = await connectWallet();
       setAddress(addr);
+      return addr;
     } catch (err) {
-      setWalletError(err.message || 'Could not connect to Freighter.');
+      console.error('[Wallet Connect Error]', err);
+      setWalletError(parseSorobanError(err));
+      return null;
     } finally {
       setConnecting(false);
     }
   };
 
+  const ensureAddress = async () => {
+    if (address) return address;
+    if (demoMode) return 'DEMO_USER';
+    const addr = await handleConnect();
+    if (!addr) {
+      throw new Error('Please connect your Freighter wallet to perform this on-chain transaction.');
+    }
+    return addr;
+  };
+
   const withBusy = async (index, action, successEvent) => {
     setBusyIndex(index);
     setMilestonesError(null);
+    setTxSuccess(null);
     try {
       if (demoMode) {
         await new Promise((r) => setTimeout(r, 600));
@@ -149,23 +166,58 @@ export default function App() {
           { id: `mock-${Date.now()}`, ledger: '—', topic: [successEvent.toLowerCase(), index] },
           ...prev,
         ].slice(0, 30));
+        setTxSuccess({ message: `Milestone #${index + 1} marked as ${successEvent} (Demo mode).` });
       } else {
-        await action();
+        const res = await action();
+        console.log(`[Soroban Transaction Confirmed] ${successEvent}:`, res);
         await loadMilestones();
+        await loadReputation();
+        setTxSuccess({
+          message: `Milestone #${index + 1} ${successEvent.toLowerCase()} successfully on-chain!`,
+          hash: res?.hash,
+        });
       }
     } catch (err) {
-      setMilestonesError(err.message || 'Transaction failed.');
+      console.error(`[Soroban Transaction Error] ${successEvent} failed:`, err);
+      const readableErr = parseSorobanError(err);
+      setMilestonesError(readableErr);
     } finally {
       setBusyIndex(null);
     }
   };
 
-  const handleFund = (index) =>
-    withBusy(index, () => fundMilestone(address, index), 'Funded');
-  const handleSubmit = (index) =>
-    withBusy(index, () => submitMilestone(address, index), 'Submitted');
-  const handleApprove = (index, rating) =>
-    withBusy(index, () => approveMilestone(address, index, rating), 'Approved');
+  const handleFund = async (index) => {
+    try {
+      const activeAddress = await ensureAddress();
+      if (!activeAddress) return;
+      await withBusy(index, () => fundMilestone(activeAddress, index), 'Funded');
+    } catch (err) {
+      console.error('[Fund Milestone Error]', err);
+      setMilestonesError(parseSorobanError(err));
+    }
+  };
+
+  const handleSubmit = async (index) => {
+    try {
+      const activeAddress = await ensureAddress();
+      if (!activeAddress) return;
+      await withBusy(index, () => submitMilestone(activeAddress, index), 'Submitted');
+    } catch (err) {
+      console.error('[Submit Milestone Error]', err);
+      setMilestonesError(parseSorobanError(err));
+    }
+  };
+
+  const handleApprove = async (index, rating) => {
+    try {
+      const activeAddress = await ensureAddress();
+      if (!activeAddress) return;
+      await withBusy(index, () => approveMilestone(activeAddress, index, rating), 'Approved');
+    } catch (err) {
+      console.error('[Approve Milestone Error]', err);
+      setMilestonesError(parseSorobanError(err));
+    }
+  };
 
   return (
     <div className="app-shell">
@@ -180,12 +232,14 @@ export default function App() {
         <div className="header-controls">
           <div className="role-toggle" role="group" aria-label="View as">
             <button
+              type="button"
               className={role === 'client' ? 'active' : ''}
               onClick={() => setRole('client')}
             >
               Client
             </button>
             <button
+              type="button"
               className={role === 'freelancer' ? 'active' : ''}
               onClick={() => setRole('freelancer')}
             >
@@ -215,6 +269,43 @@ export default function App() {
             <ReputationBadge reputation={reputation} loading={loadingReputation} />
           </div>
 
+          {txSuccess && (
+            <div className="success-panel" role="status">
+              <p>
+                ✓ {txSuccess.message}{' '}
+                {txSuccess.hash && (
+                  <a
+                    href={`https://stellar.expert/explorer/testnet/tx/${txSuccess.hash}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    View on Stellar Expert ↗
+                  </a>
+                )}
+              </p>
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={() => setTxSuccess(null)}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          {milestonesError && (
+            <div className="error-panel" role="alert" aria-live="assertive">
+              <p>⚠️ {milestonesError}</p>
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={() => { setMilestonesError(null); loadMilestones(); }}
+              >
+                Dismiss & Retry
+              </button>
+            </div>
+          )}
+
           {loadingMilestones && (
             <ul className="milestone-list" aria-busy="true">
               {[0, 1].map((i) => (
@@ -229,14 +320,7 @@ export default function App() {
             </ul>
           )}
 
-          {!loadingMilestones && milestonesError && (
-            <div className="error-panel" role="alert">
-              <p>{milestonesError}</p>
-              <button className="btn btn-outline" onClick={loadMilestones}>Retry</button>
-            </div>
-          )}
-
-          {!loadingMilestones && !milestonesError && (
+          {!loadingMilestones && (
             <ul className="milestone-list">
               {milestones.map((m, i) => (
                 <MilestoneCard

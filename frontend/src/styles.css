@@ -476,6 +476,30 @@ button, select {
   font-size: 13px;
 }
 
+.success-panel {
+  background: rgba(46, 160, 67, 0.12);
+  border: 1px solid #2ea043;
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.success-panel p {
+  margin: 0;
+  font-size: 13px;
+  color: #3fb950;
+}
+
+.success-panel a {
+  color: #58a6ff;
+  text-decoration: underline;
+}
+
 /* --- Responsive --- */
 @media (max-width: 860px) {
   .app-main {

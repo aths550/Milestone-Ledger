@@ -15,8 +15,9 @@ export default function WalletConnect({ address, connecting, error, onConnect })
         </span>
       ) : (
         <button
+          type="button"
           className="btn btn-primary"
-          onClick={onConnect}
+          onClick={(e) => { e.preventDefault(); onConnect(); }}
           disabled={connecting}
           aria-busy={connecting}
         >
